@@ -1,14 +1,13 @@
-FROM python:3.9
+FROM node:20
 
-RUN apt-get -y update && apt-get -y install --no-install-recommends npm curl zip jq \
-  && npm install -g aws-cdk
+RUN apt-get -y update && apt-get -y install --no-install-recommends python3-pip npm curl zip groff python3-virtualenv
+RUN npm install -g aws-cdk
 
-RUN /usr/local/bin/python -m pip install --upgrade pip
-RUN pip install awscli
 RUN curl -sSL https://get.docker.com/ | sh
 
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+
+RUN pip3 install -r requirements.txt --break-system-packages
 
 WORKDIR /files
 COPY . /files

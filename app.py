@@ -3,8 +3,10 @@ from os import PathLike, mkdir, path
 from posix import listdir
 from typing import Any, Mapping, List
 from json import dumps, loads
+from constructs import Construct
+from aws_cdk import App, Stack, Duration, Tags, Environment, CfnWaitCondition     
 from aws_cdk import (
-  core,
+  aws_cloudformation as cf,
   aws_cloudformation as cf,
   aws_iam as iam,
   aws_lambda as lambda_,
@@ -159,44 +161,44 @@ class JobDefinition:
     
     return self.__props[property_name]
 
-class Functions(core.Construct):
+class Functions(Construct):
   '''
   Creates the deployment Step Function's backing Lambda functions.
   '''
-  def __init__(self, scope: core.Construct, id:str)->None:
+  def __init__(self, scope: Construct, id:str)->None:
     super().__init__(scope,id)
-    
-    self.preaction_function = lambda_.Function(self,'Preaction',
-      function_name='Prepare-Stack',
-      code = Functions.get_lambda_code("preaction"),
-      timeout=core.Duration.minutes(1),
-      tracing= lambda_.Tracing.ACTIVE,
-      runtime= lambda_.Runtime.PYTHON_3_9,
-      handler='index.function_main')
+
+    # self.launch_function = lambda_.Function(self,'Launch',
+    #   function_name='Create-Stack_Task',      
+    #   code = lambda_.Code.from_asset("src/launch"),
+    #   timeout=Duration.minutes(1),
+    #   tracing= lambda_.Tracing.ACTIVE,
+    #   runtime= lambda_.Runtime.PYTHON_3_9,
+    #   handler='index.function_main')
 
     self.launch_function = lambda_.Function(self,'Launch',
-      function_name='Create-Stack_Task',
+      function_name='Create-Stack_Task',      
       code = Functions.get_lambda_code("launch"),
-      timeout=core.Duration.minutes(1),
+      timeout=Duration.minutes(1),
       tracing= lambda_.Tracing.ACTIVE,
       runtime= lambda_.Runtime.PYTHON_3_9,
-      handler='index.function_main')
+      handler='handler.function_main')
 
     self.monitor_function = lambda_.Function(self,'Monitor',
       function_name='Get-StackStatus_Task',
       code = Functions.get_lambda_code("monitor"),
-      timeout=core.Duration.minutes(1),
+      timeout=Duration.minutes(1),
       tracing= lambda_.Tracing.ACTIVE,
       runtime= lambda_.Runtime.PYTHON_3_9,
-      handler='index.function_main')
+      handler='handler.function_main')
 
     self.complete_functon = lambda_.Function(self,'Complete',
       function_name='Signal-Complete_Task',
       code = Functions.get_lambda_code("complete"),
-      timeout=core.Duration.minutes(1),
+      timeout=Duration.minutes(1),
       tracing= lambda_.Tracing.ACTIVE,
       runtime= lambda_.Runtime.PYTHON_3_9,
-      handler='index.function_main')
+      handler='handler.function_main')
 
     '''
     Grant any permissions necessary here.
@@ -210,9 +212,6 @@ class Functions(core.Construct):
         iam.ManagedPolicy.from_aws_managed_policy_name('AWSXRayDaemonWriteAccess'))
 
     self.launch_function.role.add_managed_policy(
-      iam.ManagedPolicy.from_aws_managed_policy_name('AdministratorAccess'))
-
-    self.preaction_function.role.add_managed_policy(
       iam.ManagedPolicy.from_aws_managed_policy_name('AdministratorAccess'))
 
   @staticmethod 
@@ -231,19 +230,14 @@ class Functions(core.Construct):
     
     raise FileNotFoundError("Unable to find lambda_code for %s" % lambda_name)
 
-class DeploymentWorkflow(core.Construct):
+class DeploymentWorkflow(Construct):
   '''
   Represents the AWS Step Function that orchestrates the deployment.
   '''
-  def __init__(self, scope: core.Construct, id: str) -> None:
+  def __init__(self, scope: Construct, id: str) -> None:
     super().__init__(scope, id)
 
     self.functions = Functions(self,'Functions')
-
-    before_creation = sft.LambdaInvoke(self,'Before-StackCreation',
-      lambda_function= self.functions.preaction_function,
-      input_path='$.inputRequest',
-      result_path='$.preaction')
 
     create_stack = sft.LambdaInvoke(self,'Create-Stack',
       lambda_function= self.functions.launch_function,
@@ -257,7 +251,7 @@ class DeploymentWorkflow(core.Construct):
 
     create_stack.next(monitor_stack)
 
-    delay = sf.Wait(self,'Sleep',time= sf.WaitTime.duration(core.Duration.seconds(30)))
+    delay = sf.Wait(self,'Sleep',time= sf.WaitTime.duration(Duration.seconds(30)))
     delay.next(monitor_stack)
 
     complete_job = sft.LambdaInvoke(self,'Signal-Completion',
@@ -315,24 +309,23 @@ class DeploymentWorkflow(core.Construct):
     stack_list = sf.Map(self,'Enumerate-Stacks',
       input_path='$.stacks',
       max_concurrency=1)
-    stack_list.iterator(before_creation)
-    before_creation.next(create_stack)
+    stack_list.iterator(create_stack)
 
     self.state_machine = sf.StateMachine(self,'StateMachine',
       state_machine_name='Cfn-MultiRegion-Orchestrator',
       tracing_enabled=True,
       definition=stack_list)
 
-class CfnMultiRegionOrcheratorStack(core.Stack):
+class CfnMultiRegionOrcheratorStack(Stack):
   '''
   Represents the Amazon CloudFormation Stack that contains the deployment tool.
   After deploying the Step Function, the Stack will also deploy every file under `job-definitions`.
 
   If there are multiple job-definitions files they will each run in parallel. Its declared steps run sequentially.
   '''
-  def __init__(self, scope:core.Construct,id:str) -> None:
+  def __init__(self, scope:Construct,id:str) -> None:
     super().__init__(scope,id)
-    core.Tags.of(self).add('topology','blueprint:cfn-multiregion-orchestration')
+    Tags.of(self).add('topology','blueprint:cfn-multiregion-orchestration')
 
     self.deploy_tool = DeploymentWorkflow(self,'Workflow')
     self.provision_everything()
@@ -375,7 +368,8 @@ class CfnMultiRegionOrcheratorStack(core.Stack):
     '''
     stacks:List[Mapping[str,Mapping[str,Any]]] = [x.to_inputRequest() for x in job_definition.stacks]
     for stack in stacks:
-      stack['inputRequest']['wait_handle'] = wait_handle.ref
+      if 'hot-primary' in stack['inputRequest']['stack_name'] or 'network-stack' in stack['inputRequest']['stack_name']:
+        stack['inputRequest']['wait_handle'] = wait_handle.ref
 
     input={
       'stacks': stacks
@@ -400,7 +394,7 @@ class CfnMultiRegionOrcheratorStack(core.Stack):
         physical_resource_id= cr.PhysicalResourceId.of('CreateStack_'+job_definition.module_name),
         parameters={
           'stateMachineArn': self.deploy_tool.state_machine.state_machine_arn,
-          'input': input,
+          'input': dumps(input),
         }),
       on_update= cr.AwsSdkCall(
         service='StepFunctions',
@@ -412,7 +406,7 @@ class CfnMultiRegionOrcheratorStack(core.Stack):
         })
       )
 
-    core.CfnWaitCondition(self,'WaitCondition_'+job_definition.module_name,
+    CfnWaitCondition(self,'WaitCondition_'+job_definition.module_name,
       handle=wait_handle.ref,
       count= len(stacks),
       timeout=job_definition.timeout)
@@ -420,6 +414,6 @@ class CfnMultiRegionOrcheratorStack(core.Stack):
 '''
 Finally synthize all resources.
 '''
-app = core.App()
+app = App()
 CfnMultiRegionOrcheratorStack(app,'CfnMultiRegionOrchestrator')
 app.synth()

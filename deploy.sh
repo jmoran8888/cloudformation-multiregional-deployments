@@ -5,25 +5,25 @@
 #  2021-09-24 Nate Bachmeier - Created.
 ###############################################
 
-if [ -z "$S3_ASSET_BUCKET" ]
-then
-  if [ -z "$1" ]
-  then
-    echo "Usage: $0 the-bucket-name"
-    exit 1
-  fi
+# if [ -z "$S3_ASSET_BUCKET" ]
+# then
+#   if [ -z "$1" ]
+#   then
+#     echo "Usage: $0 the-bucket-name"
+#     exit 1
+#   fi
   
-  export S3_ASSET_BUCKET=$1
-fi
+#   export S3_ASSET_BUCKET=$1
+# fi
 
-# No trailing slashs!
-if [ -z "$S3_ASSET_PREFIX" ]
-then
-  export S3_ASSET_PREFIX=cfn-multiregional-orchestration
-fi
+# # No trailing slashs!
+# if [ -z "$S3_ASSET_PREFIX" ]
+# then
+#   export S3_ASSET_PREFIX=cfn-multiregional-orchestration
+# fi
 
-# EventEngine requires we use the replicated bucket
-export TEMPLATE_ASSET_BUCKET=`echo ${S3_ASSET_BUCKET/us-east-1/us-west-1}`
+# # EventEngine requires we use the replicated bucket
+# export TEMPLATE_ASSET_BUCKET=`echo ${S3_ASSET_BUCKET/us-east-1/us-west-1}`
 
 echo ==========================
 echo Initializing Deployment
@@ -61,7 +61,8 @@ echo ==========================
 
 ##aws s3 rm --recursive s3://$S3_ASSET_BUCKET/$S3_ASSET_PREFIX/
 rm -rf cdk.out/*
-cdk synth --app ./app.py
+# cdk synth --app ./app.py
+cdk synth
 
 echo ==========================
 echo Zip codegen components 
@@ -76,21 +77,21 @@ done
 echo ==========================
 echo Fix the parameters for Event Engine 
 echo ==========================
-./ee-util.py
-cat cdk.out/EventEngine.template.json | jq '.Parameters'
+# ./ee-util.py
+# cat cdk.out/EventEngine.template.json | jq '.Parameters'
 
 echo ==========================
 echo Finally, upload everything
 echo ==========================
 
-if [ -z "$CI_JOB_TOKEN" ]
-then
-echo aws s3 cp --recursive cdk.out/ s3://$S3_ASSET_BUCKET/$S3_ASSET_PREFIX/
-aws s3 cp --recursive cdk.out/ s3://$S3_ASSET_BUCKET/$S3_ASSET_PREFIX/
-else
-pushd cdk.out
-zip -r ../deployer.zip .
-popd
-version=`date +%Y.%m.%d`
-curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file ./deployer.zip "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${CI_COMMIT_BRANCH}/${version}/deployer.zip"
-fi
+# if [ -z "$CI_JOB_TOKEN" ]
+# then
+# echo aws s3 cp --recursive cdk.out/ s3://$S3_ASSET_BUCKET/$S3_ASSET_PREFIX/
+# aws s3 cp --recursive cdk.out/ s3://$S3_ASSET_BUCKET/$S3_ASSET_PREFIX/
+# else
+# pushd cdk.out
+# zip -r ../deployer.zip .
+# popd
+# version=`date +%Y.%m.%d`
+# curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file ./deployer.zip "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${CI_COMMIT_BRANCH}/${version}/deployer.zip"
+# fi
