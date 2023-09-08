@@ -337,20 +337,33 @@ class CfnMultiRegionOrcheratorStack(Stack):
     Job Definitions launch in parallel and then sequentially process its steps.
     Customers can support more sophisticated deployment graphs with additional CfnWaitConditionHandle(s).
     '''
+
+    files = []
     for fileName in listdir(job_definition_directory):
+      files.append(fileName) 
+
+    print(files)     
+    files.sort(reverse=True)    
+    print(files)   
+
+    last_wait_handle:cf.CfnWaitConditionHandle = None    
+    for fileName in files:
       if not fileName.endswith(".json"):
         continue
 
       fileName = path.join(job_definition_directory, fileName)
+      # print(fileName)            
       definition = JobDefinition(fileName)
-      self.provision(definition)
+      run_step_function, wait_handle = self.provision(definition)
+      if last_wait_handle is not None:
+        run_step_function.add_depends_on(last_wait_handle)
+        last_wait_handle = wait_handle
 
   def provision(self,job_definition:JobDefinition)->None:
     '''
     Add executing the given JobDefinition during the deployment.
     '''
-    wait_handle = cf.CfnWaitConditionHandle(self,'WaitHandle-'+job_definition.module_name)
-    
+    wait_handle = cf.CfnWaitConditionHandle(self,'WaitHandle-'+job_definition.module_name)    
     '''
     Convert the stack creation steps into this format for the step function.
     {
@@ -368,8 +381,7 @@ class CfnMultiRegionOrcheratorStack(Stack):
     '''
     stacks:List[Mapping[str,Mapping[str,Any]]] = [x.to_inputRequest() for x in job_definition.stacks]
     for stack in stacks:
-      if 'hot-primary' in stack['inputRequest']['stack_name'] or 'network-stack' in stack['inputRequest']['stack_name']:
-        stack['inputRequest']['wait_handle'] = wait_handle.ref
+      stack['inputRequest']['wait_handle'] = wait_handle.ref
 
     input={
       'stacks': stacks
@@ -380,12 +392,13 @@ class CfnMultiRegionOrcheratorStack(Stack):
     '''
     with open(path.join(cdkout_directory,path.basename(job_definition.file_name)), "wt") as f:
       f.write(dumps(input,indent=2))
+      # print(dumps(input))      
 
     '''
     AwsSdkCall expects JavaScript naming conventions. 
     https://docs.aws.amazon.com/AWSJavaScriptSDK/latest/AWS/StepFunctions.html#startExecution-property
     '''
-    _ = cr.AwsCustomResource(self,'Launch_'+job_definition.module_name,
+    run_step_function = cr.AwsCustomResource(self,'Launch_'+job_definition.module_name,
       policy= cr.AwsCustomResourcePolicy.from_sdk_calls(
         resources=cr.AwsCustomResourcePolicy.ANY_RESOURCE),
       on_create= cr.AwsSdkCall(
@@ -410,6 +423,7 @@ class CfnMultiRegionOrcheratorStack(Stack):
       handle=wait_handle.ref,
       count= len(stacks),
       timeout=job_definition.timeout)
+    return run_step_function, wait_handle
 
 '''
 Finally synthize all resources.

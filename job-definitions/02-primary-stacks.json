@@ -1,5 +1,5 @@
 {
-  "moduleName": "BackupAndRestore",
+  "moduleName": "PrimaryStacks",
   "timeout": "3600",
   "description": "Provisions multi-regional configuration for testing fail-over within a backup and restore environment.",
   "stacks": [
@@ -9,9 +9,12 @@
       "regionName": "us-east-1"
     },
     {
-      "templatePath": "https://ws-assets-prod-iad-r-pdx-f3b3f9f1a7d6a3d0.s3.us-west-2.amazonaws.com/f9e935c5-bb21-4fb9-9fbc-4e4e97e61fe8/BackupAndRestoreDB.yaml",
-      "stackName": "backupandrestore-secondary",
-      "regionName": "us-west-2"
-    }
+      "templatePath": "https://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee.s3.us-east-1.amazonaws.com/f9e935c5-bb21-4fb9-9fbc-4e4e97e61fe8/PilotLight.yaml",
+      "stackName": "pilot-primary",
+      "regionName": "us-east-1",
+      "parameters": {
+        "IsPrimary": "yes"
+      }
+    }    
   ]
 }
